@@ -319,7 +319,7 @@ def _mobilenet_v3_conf(
 def _mobilenet_v3(
     inverted_residual_setting: List[InvertedResidualConfig],
     last_channel: int,
-    pretrained_name: str,
+    pretrained_name: str | None,
     **kwargs: Any,
 ):
     model = MN(inverted_residual_setting, last_channel, **kwargs)
@@ -371,7 +371,7 @@ def _mobilenet_v3(
     return model
 
 
-def mobilenet_v3(pretrained_name: str = None, **kwargs: Any) -> MN:
+def mobilenet_v3(pretrained_name: str | None = None, **kwargs: Any) -> MN:
     """
     Constructs a MobileNetV3 architecture from
     "Searching for MobileNetV3" <https://arxiv.org/abs/1905.02244>".

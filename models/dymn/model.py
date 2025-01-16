@@ -342,7 +342,7 @@ def _dymn_conf(
 def _dymn(
     inverted_residual_setting: List[DynamicInvertedResidualConfig],
     last_channel: int,
-    pretrained_name: str,
+    pretrained_name: str | None,
     **kwargs: Any,
 ):
     model = DyMN(inverted_residual_setting, last_channel, **kwargs)
@@ -370,7 +370,7 @@ def _dymn(
     return model
 
 
-def dymn(pretrained_name: str = None, **kwargs: Any):
+def dymn(pretrained_name: str | None = None, **kwargs: Any):
     inverted_residual_setting, last_channel = _dymn_conf(**kwargs)
     return _dymn(inverted_residual_setting, last_channel, pretrained_name, **kwargs)
 
