@@ -22,12 +22,20 @@ class EnsemblerModel(nn.Module):
         return all_out, all_out
 
 
-def get_ensemble_model(model_names):
+def get_ensemble_model(num_classes, model_names):
     models = []
     for model_name in model_names:
         if model_name.startswith("dymn"):
-            model = get_dymn(width_mult=NAME_TO_WIDTH(model_name), pretrained_name=model_name)
+            model = get_dymn(
+                num_classes=num_classes,
+                width_mult=NAME_TO_WIDTH(model_name),
+                pretrained_name=model_name,
+            )
         else:
-            model = get_mobilenet(width_mult=NAME_TO_WIDTH(model_name), pretrained_name=model_name)
+            model = get_mobilenet(
+                num_classes=num_classes,
+                width_mult=NAME_TO_WIDTH(model_name),
+                pretrained_name=model_name,
+            )
         models.append(model)
     return EnsemblerModel(models)
