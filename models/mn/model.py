@@ -48,9 +48,15 @@ pretrained_models = {
     "mn40_as": urllib.parse.urljoin(model_url, "mn40_as_mAP_484.pt"),
     "mn40_as(2)": urllib.parse.urljoin(model_url, "mn40_as_mAP_483.pt"),
     "mn40_as(3)": urllib.parse.urljoin(model_url, "mn40_as_mAP_483(2).pt"),
-    "mn40_as_no_im_pre": urllib.parse.urljoin(model_url, "mn40_as_no_im_pre_mAP_483.pt"),
-    "mn40_as_no_im_pre(2)": urllib.parse.urljoin(model_url, "mn40_as_no_im_pre_mAP_483(2).pt"),
-    "mn40_as_no_im_pre(3)": urllib.parse.urljoin(model_url, "mn40_as_no_im_pre_mAP_482.pt"),
+    "mn40_as_no_im_pre": urllib.parse.urljoin(
+        model_url, "mn40_as_no_im_pre_mAP_483.pt"
+    ),
+    "mn40_as_no_im_pre(2)": urllib.parse.urljoin(
+        model_url, "mn40_as_no_im_pre_mAP_483(2).pt"
+    ),
+    "mn40_as_no_im_pre(3)": urllib.parse.urljoin(
+        model_url, "mn40_as_no_im_pre_mAP_482.pt"
+    ),
     "mn40_as_ext": urllib.parse.urljoin(model_url, "mn40_as_ext_mAP_487.pt"),
     "mn40_as_ext(2)": urllib.parse.urljoin(model_url, "mn40_as_ext_mAP_486.pt"),
     "mn40_as_ext(3)": urllib.parse.urljoin(model_url, "mn40_as_ext_mAP_485.pt"),
@@ -104,15 +110,22 @@ class MN(nn.Module):
             raise ValueError("The inverted_residual_setting should not be empty")
         elif not (
             isinstance(inverted_residual_setting, Sequence)
-            and all([isinstance(s, InvertedResidualConfig) for s in inverted_residual_setting])
+            and all([
+                isinstance(s, InvertedResidualConfig) for s in inverted_residual_setting
+            ])
         ):
-            raise TypeError("The inverted_residual_setting should be List[InvertedResidualConfig]")
+            raise TypeError(
+                "The inverted_residual_setting should be List[InvertedResidualConfig]"
+            )
 
         if block is None:
             block = InvertedResidual
 
-        depthwise_norm_layer = norm_layer = \
-            norm_layer if norm_layer is not None else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
+        depthwise_norm_layer = norm_layer = (
+            norm_layer
+            if norm_layer is not None
+            else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
+        )
 
         layers: List[nn.Module] = []
 
@@ -133,7 +146,7 @@ class MN(nn.Module):
         )
 
         # get squeeze excitation config
-        se_cnf = kwargs.get('se_conf', None)
+        se_cnf = kwargs.get("se_conf", None)
 
         # building inverted residual blocks
         # - keep track of size of frequency and time dimensions for possible application of Squeeze-and-Excitation
@@ -141,7 +154,7 @@ class MN(nn.Module):
         # - applying Squeeze-and-Excitation on the time dimension is not recommended as this constrains the network to
         # a particular length of the audio clip, whereas Squeeze-and-Excitation on the frequency bands is fine,
         # as the number of frequency bands is usually not changing
-        f_dim, t_dim = kwargs.get('input_dims', (128, 1000))
+        f_dim, t_dim = kwargs.get("input_dims", (128, 1000))
         # take into account first conv layer
         f_dim = cnn_out_size(f_dim, 1, 1, 3, 2)
         t_dim = cnn_out_size(t_dim, 1, 1, 3, 2)
@@ -169,8 +182,11 @@ class MN(nn.Module):
         self.features = nn.Sequential(*layers)
         self.head_type = kwargs.get("head_type", False)
         if self.head_type == "multihead_attention_pooling":
-            self.classifier = MultiHeadAttentionPooling(lastconv_output_channels, num_classes,
-                                                        num_heads=kwargs.get("multihead_attention_heads"))
+            self.classifier = MultiHeadAttentionPooling(
+                lastconv_output_channels,
+                num_classes,
+                num_heads=kwargs.get("multihead_attention_heads"),
+            )
         elif self.head_type == "fully_convolutional":
             self.classifier = nn.Sequential(
                 nn.Conv2d(
@@ -179,7 +195,8 @@ class MN(nn.Module):
                     kernel_size=(1, 1),
                     stride=(1, 1),
                     padding=(0, 0),
-                    bias=False),
+                    bias=False,
+                ),
                 nn.BatchNorm2d(num_classes),
                 nn.AdaptiveAvgPool2d((1, 1)),
             )
@@ -193,8 +210,10 @@ class MN(nn.Module):
                 nn.Linear(last_channel, num_classes),
             )
         else:
-            raise NotImplementedError(f"Head '{self.head_type}' unknown. Must be one of: 'mlp', "
-                                      f"'fully_convolutional', 'multihead_attention_pooling'")
+            raise NotImplementedError(
+                f"Head '{self.head_type}' unknown. Must be one of: 'mlp', "
+                f"'fully_convolutional', 'multihead_attention_pooling'"
+            )
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -209,43 +228,49 @@ class MN(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def _forward_impl(self, x: Tensor, return_fmaps: bool = False) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
+    def _forward_impl(
+        self, x: Tensor, return_fmaps: bool = False
+    ) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
         fmaps = []
-        
+
         for i, layer in enumerate(self.features):
             x = layer(x)
             if return_fmaps:
                 fmaps.append(x)
-        
+
         features = F.adaptive_avg_pool2d(x, (1, 1)).squeeze()
         x = self.classifier(x).squeeze()
-        
+
         if features.dim() == 1 and x.dim() == 1:
             # squeezed batch dimension
             features = features.unsqueeze(0)
             x = x.unsqueeze(0)
-        
+
         if return_fmaps:
             return x, fmaps
         else:
             return x, features
 
-    def forward(self, x: Tensor) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
+    def forward(
+        self, x: Tensor
+    ) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
         return self._forward_impl(x)
 
 
 def _mobilenet_v3_conf(
-        width_mult: float = 1.0,
-        reduced_tail: bool = False,
-        dilated: bool = False,
-        strides: Tuple[int] = (2, 2, 2, 2),
-        **kwargs: Any
+    width_mult: float = 1.0,
+    reduced_tail: bool = False,
+    dilated: bool = False,
+    strides: Tuple[int] = (2, 2, 2, 2),
+    **kwargs: Any,
 ):
     reduce_divider = 2 if reduced_tail else 1
     dilation = 2 if dilated else 1
 
     bneck_conf = partial(InvertedResidualConfig, width_mult=width_mult)
-    adjust_channels = partial(InvertedResidualConfig.adjust_channels, width_mult=width_mult)
+    adjust_channels = partial(
+        InvertedResidualConfig.adjust_channels, width_mult=width_mult
+    )
 
     # InvertedResidualConfig:
     # input_channels, kernel, expanded_channels, out_channels, use_se, activation, stride, dilation
@@ -262,9 +287,29 @@ def _mobilenet_v3_conf(
         bneck_conf(80, 3, 184, 80, False, "HS", 1, 1),
         bneck_conf(80, 3, 480, 112, True, "HS", 1, 1),
         bneck_conf(112, 3, 672, 112, True, "HS", 1, 1),
-        bneck_conf(112, 5, 672, 160 // reduce_divider, True, "HS", strides[3], dilation),  # C4
-        bneck_conf(160 // reduce_divider, 5, 960 // reduce_divider, 160 // reduce_divider, True, "HS", 1, dilation),
-        bneck_conf(160 // reduce_divider, 5, 960 // reduce_divider, 160 // reduce_divider, True, "HS", 1, dilation),
+        bneck_conf(
+            112, 5, 672, 160 // reduce_divider, True, "HS", strides[3], dilation
+        ),  # C4
+        bneck_conf(
+            160 // reduce_divider,
+            5,
+            960 // reduce_divider,
+            160 // reduce_divider,
+            True,
+            "HS",
+            1,
+            dilation,
+        ),
+        bneck_conf(
+            160 // reduce_divider,
+            5,
+            960 // reduce_divider,
+            160 // reduce_divider,
+            True,
+            "HS",
+            1,
+            dilation,
+        ),
     ]
     last_channel = adjust_channels(1280 // reduce_divider)
 
@@ -281,27 +326,40 @@ def _mobilenet_v3(
 
     if pretrained_name in pretrained_models:
         model_url = pretrained_models.get(pretrained_name)
-        state_dict = load_state_dict_from_url(model_url, model_dir=model_dir, map_location="cpu")
-        if kwargs['head_type'] == "mlp":
-            num_classes = state_dict['classifier.5.bias'].size(0)
-        elif kwargs['head_type'] == "fully_convolutional":
-            num_classes = state_dict['classifier.1.bias'].size(0)
+        state_dict = load_state_dict_from_url(
+            model_url, model_dir=model_dir, map_location="cpu"
+        )
+        if kwargs["head_type"] == "mlp":
+            num_classes = state_dict["classifier.5.bias"].size(0)
+        elif kwargs["head_type"] == "fully_convolutional":
+            num_classes = state_dict["classifier.1.bias"].size(0)
         else:
-            print("Loading weights for classifier only implemented for head types 'mlp' and 'fully_convolutional'")
+            print(
+                "Loading weights for classifier only implemented for head types 'mlp' and 'fully_convolutional'"
+            )
             num_classes = -1
-        if kwargs['num_classes'] != num_classes:
+        if kwargs["num_classes"] != num_classes:
             # if the number of logits is not matching the state dict,
             # drop the corresponding pre-trained part
-            pretrain_logits = state_dict['classifier.5.bias'].size(0) if kwargs['head_type'] == "mlp" \
-                else state_dict['classifier.1.bias'].size(0)
-            print(f"Number of classes defined: {kwargs['num_classes']}, "
-                  f"but try to load pre-trained layer with logits: {pretrain_logits}\n"
-                  "Dropping last layer.")
-            if kwargs['head_type'] == "mlp":
-                del state_dict['classifier.5.weight']
-                del state_dict['classifier.5.bias']
+            pretrain_logits = (
+                state_dict["classifier.5.bias"].size(0)
+                if kwargs["head_type"] == "mlp"
+                else state_dict["classifier.1.bias"].size(0)
+            )
+            print(
+                f"Number of classes defined: {kwargs['num_classes']}, "
+                f"but try to load pre-trained layer with logits: {pretrain_logits}\n"
+                "Dropping last layer."
+            )
+            if kwargs["head_type"] == "mlp":
+                del state_dict["classifier.5.weight"]
+                del state_dict["classifier.5.bias"]
             else:
-                state_dict = {k: v for k, v in state_dict.items() if not k.startswith('classifier')}
+                state_dict = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if not k.startswith("classifier")
+                }
         try:
             model.load_state_dict(state_dict)
         except RuntimeError as e:
@@ -313,55 +371,78 @@ def _mobilenet_v3(
     return model
 
 
-def mobilenet_v3(pretrained_name: str = None, **kwargs: Any) \
-        -> MN:
+def mobilenet_v3(pretrained_name: str = None, **kwargs: Any) -> MN:
     """
     Constructs a MobileNetV3 architecture from
     "Searching for MobileNetV3" <https://arxiv.org/abs/1905.02244>".
     """
     inverted_residual_setting, last_channel = _mobilenet_v3_conf(**kwargs)
-    return _mobilenet_v3(inverted_residual_setting, last_channel, pretrained_name, **kwargs)
+    return _mobilenet_v3(
+        inverted_residual_setting, last_channel, pretrained_name, **kwargs
+    )
 
 
-def get_model(num_classes: int = 527, pretrained_name: str = None, width_mult: float = 1.0,
-              reduced_tail: bool = False, dilated: bool = False, strides: Tuple[int, int, int, int] = (2, 2, 2, 2),
-              head_type: str = "mlp", multihead_attention_heads: int = 4, input_dim_f: int = 128,
-              input_dim_t: int = 1000, se_dims: str = 'c', se_agg: str = "max", se_r: int = 4):
+def get_model(
+    num_classes: int = 527,
+    pretrained_name: str | None = None,
+    width_mult: float = 1.0,
+    reduced_tail: bool = False,
+    dilated: bool = False,
+    strides: Tuple[int, int, int, int] = (2, 2, 2, 2),
+    head_type: str = "mlp",
+    multihead_attention_heads: int = 4,
+    input_dim_f: int = 128,
+    input_dim_t: int = 1000,
+    se_dims: str = "c",
+    se_agg: str = "max",
+    se_r: int = 4,
+):
     """
-        Arguments to modify the instantiation of a MobileNetv3
+    Arguments to modify the instantiation of a MobileNetv3
 
-        Args:
-            num_classes (int): Specifies number of classes to predict
-            pretrained_name (str): Specifies name of pre-trained model to load
-            width_mult (float): Scales width of network
-            reduced_tail (bool): Scales down network tail
-            dilated (bool): Applies dilated convolution to network tail
-            strides (Tuple): Strides that are set to '2' in original implementation;
-                might be changed to modify the size of receptive field and the downsampling factor in
-                time and frequency dimension
-            head_type (str): decides which classification head to use
-            multihead_attention_heads (int): number of heads in case 'multihead_attention_heads' is used
-            input_dim_f (int): number of frequency bands
-            input_dim_t (int): number of time frames
-            se_dims (Tuple): choose dimension to apply squeeze-excitation on, if multiple dimensions are chosen, then
-                squeeze-excitation is applied concurrently and se layer outputs are fused by se_agg operation
-            se_agg (str): operation to fuse output of concurrent se layers
-            se_r (int): squeeze excitation bottleneck size
-            se_dims (str): contains letters corresponding to dimensions 'c' - channel, 'f' - frequency, 't' - time
-        """
+    Args:
+        num_classes (int): Specifies number of classes to predict
+        pretrained_name (str): Specifies name of pre-trained model to load
+        width_mult (float): Scales width of network
+        reduced_tail (bool): Scales down network tail
+        dilated (bool): Applies dilated convolution to network tail
+        strides (Tuple): Strides that are set to '2' in original implementation;
+            might be changed to modify the size of receptive field and the downsampling factor in
+            time and frequency dimension
+        head_type (str): decides which classification head to use
+        multihead_attention_heads (int): number of heads in case 'multihead_attention_heads' is used
+        input_dim_f (int): number of frequency bands
+        input_dim_t (int): number of time frames
+        se_dims (Tuple): choose dimension to apply squeeze-excitation on, if multiple dimensions are chosen, then
+            squeeze-excitation is applied concurrently and se layer outputs are fused by se_agg operation
+        se_agg (str): operation to fuse output of concurrent se layers
+        se_r (int): squeeze excitation bottleneck size
+        se_dims (str): contains letters corresponding to dimensions 'c' - channel, 'f' - frequency, 't' - time
+    """
 
-    dim_map = {'c': 1, 'f': 2, 't': 3}
-    assert len(se_dims) <= 3 and all([s in dim_map.keys() for s in se_dims]) or se_dims == 'none'
+    dim_map = {"c": 1, "f": 2, "t": 3}
+    assert (
+        len(se_dims) <= 3
+        and all([s in dim_map.keys() for s in se_dims])
+        or se_dims == "none"
+    )
     input_dims = (input_dim_f, input_dim_t)
-    if se_dims == 'none':
+    if se_dims == "none":
         se_dims = None
     else:
         se_dims = [dim_map[s] for s in se_dims]
     se_conf = dict(se_dims=se_dims, se_agg=se_agg, se_r=se_r)
-    m = mobilenet_v3(pretrained_name=pretrained_name, num_classes=num_classes,
-                     width_mult=width_mult, reduced_tail=reduced_tail, dilated=dilated, strides=strides,
-                     head_type=head_type, multihead_attention_heads=multihead_attention_heads,
-                     input_dims=input_dims, se_conf=se_conf
-                     )
+    m = mobilenet_v3(
+        pretrained_name=pretrained_name,
+        num_classes=num_classes,
+        width_mult=width_mult,
+        reduced_tail=reduced_tail,
+        dilated=dilated,
+        strides=strides,
+        head_type=head_type,
+        multihead_attention_heads=multihead_attention_heads,
+        input_dims=input_dims,
+        se_conf=se_conf,
+    )
     print(m)
     return m
