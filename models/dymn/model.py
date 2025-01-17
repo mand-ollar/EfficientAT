@@ -17,7 +17,7 @@ from models.EfficientAT.models.mn.block_types import InvertedResidualConfig, Inv
 # points to github releases
 model_url = "https://github.com/fschmid56/EfficientAT/releases/download/v0.0.1/"
 # folder to store downloaded models to
-model_dir = "resources"
+model_dir = "./models/resources"
 
 
 pretrained_models = {
