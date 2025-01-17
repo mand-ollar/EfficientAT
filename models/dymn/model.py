@@ -428,5 +428,5 @@ def get_model(
         temp_schedule=temp_schedule,
         use_dy_blocks=use_dy_blocks,
     )
-    print(m)
+
     return m

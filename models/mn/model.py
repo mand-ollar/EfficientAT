@@ -412,5 +412,5 @@ def get_model(
         input_dims=input_dims,
         se_conf=se_conf,
     )
-    print(m)
+
     return m
