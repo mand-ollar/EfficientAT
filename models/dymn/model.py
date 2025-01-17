@@ -6,13 +6,13 @@ from torchvision.ops.misc import ConvNormActivation
 from torch.hub import load_state_dict_from_url
 import urllib.parse
 
-from models.dymn.dy_block import (
+from models.EfficientAT.models.dymn.dy_block import (
     DynamicInvertedResidualConfig,
     DY_Block,
     DynamicConv,
     DyReLUB,
 )
-from models.mn.block_types import InvertedResidualConfig, InvertedResidual
+from models.EfficientAT.models.mn.block_types import InvertedResidualConfig, InvertedResidual
 
 # points to github releases
 model_url = "https://github.com/fschmid56/EfficientAT/releases/download/v0.0.1/"
@@ -67,23 +67,14 @@ class DyMN(nn.Module):
             raise ValueError("The inverted_residual_setting should not be empty")
         elif not (
             isinstance(inverted_residual_setting, Sequence)
-            and all([
-                isinstance(s, DynamicInvertedResidualConfig)
-                for s in inverted_residual_setting
-            ])
+            and all([isinstance(s, DynamicInvertedResidualConfig) for s in inverted_residual_setting])
         ):
-            raise TypeError(
-                "The inverted_residual_setting should be List[DynamicInvertedResidualConfig]"
-            )
+            raise TypeError("The inverted_residual_setting should be List[DynamicInvertedResidualConfig]")
 
         if block is None:
             block = DY_Block
 
-        norm_layer = (
-            norm_layer
-            if norm_layer is not None
-            else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
-        )
+        norm_layer = norm_layer if norm_layer is not None else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
 
         self.layers = nn.ModuleList()
 
@@ -167,9 +158,7 @@ class DyMN(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-            elif isinstance(
-                m, (nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm, nn.InstanceNorm2d)
-            ):
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm, nn.InstanceNorm2d)):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Linear):
@@ -177,9 +166,7 @@ class DyMN(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def _feature_forward(
-        self, x: Tensor, return_fmaps: bool = False
-    ) -> Union[Tensor, Tuple[Tensor, List[Tensor]]]:
+    def _feature_forward(self, x: Tensor, return_fmaps: bool = False) -> Union[Tensor, Tuple[Tensor, List[Tensor]]]:
         fmaps = []
         x = self.in_c(x)
         if return_fmaps:
@@ -240,9 +227,7 @@ def _dymn_conf(
     dilation = 2 if dilated else 1
 
     bneck_conf = partial(DynamicInvertedResidualConfig, width_mult=width_mult)
-    adjust_channels = partial(
-        DynamicInvertedResidualConfig.adjust_channels, width_mult=width_mult
-    )
+    adjust_channels = partial(DynamicInvertedResidualConfig.adjust_channels, width_mult=width_mult)
 
     activations = [
         "RE",
@@ -284,9 +269,7 @@ def _dymn_conf(
             True,
         ]
     else:
-        raise NotImplementedError(
-            f"Config use_dy_blocks={use_dy_blocks} not implemented."
-        )
+        raise NotImplementedError(f"Config use_dy_blocks={use_dy_blocks} not implemented.")
 
     inverted_residual_setting = [
         bneck_conf(16, 3, 16, 16, use_dy_block[0], activations[0], 1, 1),
@@ -295,9 +278,7 @@ def _dymn_conf(
         bneck_conf(24, 5, 72, 40, use_dy_block[3], activations[3], strides[1], 1),  # C2
         bneck_conf(40, 5, 120, 40, use_dy_block[4], activations[4], 1, 1),
         bneck_conf(40, 5, 120, 40, use_dy_block[5], activations[5], 1, 1),
-        bneck_conf(
-            40, 3, 240, 80, use_dy_block[6], activations[6], strides[2], 1
-        ),  # C3
+        bneck_conf(40, 3, 240, 80, use_dy_block[6], activations[6], strides[2], 1),  # C3
         bneck_conf(80, 3, 200, 80, use_dy_block[7], activations[7], 1, 1),
         bneck_conf(80, 3, 184, 80, use_dy_block[8], activations[8], 1, 1),
         bneck_conf(80, 3, 184, 80, use_dy_block[9], activations[9], 1, 1),
@@ -351,9 +332,7 @@ def _dymn(
     if pretrained_name:
         # download from GitHub or load cached state_dict from 'resources' folder
         model_url = pretrained_models.get(pretrained_name)
-        state_dict = load_state_dict_from_url(
-            model_url, model_dir=model_dir, map_location="cpu"
-        )
+        state_dict = load_state_dict_from_url(model_url, model_dir=model_dir, map_location="cpu")
         cls_in_state_dict = state_dict["classifier.5.weight"].shape[0]
         cls_in_current_model = model.classifier[5].out_features
         if cls_in_state_dict != cls_in_current_model:

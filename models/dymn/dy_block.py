@@ -5,21 +5,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.dymn.utils import make_divisible, cnn_out_size
+from models.EfficientAT.models.dymn.utils import make_divisible, cnn_out_size
 
 
 class DynamicInvertedResidualConfig:
     def __init__(
-            self,
-            input_channels: int,
-            kernel: int,
-            expanded_channels: int,
-            out_channels: int,
-            use_dy_block: bool,
-            activation: str,
-            stride: int,
-            dilation: int,
-            width_mult: float,
+        self,
+        input_channels: int,
+        kernel: int,
+        expanded_channels: int,
+        out_channels: int,
+        use_dy_block: bool,
+        activation: str,
+        stride: int,
+        dilation: int,
+        width_mult: float,
     ):
         self.input_channels = self.adjust_channels(input_channels, width_mult)
         self.kernel = kernel
@@ -42,20 +42,21 @@ class DynamicInvertedResidualConfig:
 
 
 class DynamicConv(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 context_dim,
-                 kernel_size,
-                 stride=1,
-                 dilation=1,
-                 padding=0,
-                 groups=1,
-                 att_groups=1,
-                 bias=False,
-                 k=4,
-                 temp_schedule=(30, 1, 1, 0.05)
-                 ):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        context_dim,
+        kernel_size,
+        stride=1,
+        dilation=1,
+        padding=0,
+        groups=1,
+        att_groups=1,
+        bias=False,
+        k=4,
+        temp_schedule=(30, 1, 1, 0.05),
+    ):
         super(DynamicConv, self).__init__()
         assert in_channels % groups == 0
         self.in_channels = in_channels
@@ -73,9 +74,7 @@ class DynamicConv(nn.Module):
         self.att_groups = att_groups
 
         # Equation 6 in paper: obtain coefficients for K attention weights over conv. kernels
-        self.residuals = nn.Sequential(
-                nn.Linear(context_dim, k * self.att_groups)
-        )
+        self.residuals = nn.Sequential(nn.Linear(context_dim, k * self.att_groups))
 
         # k sets of weights for convolution
         weight = torch.randn(k, out_channels, in_channels // groups, kernel_size, kernel_size)
@@ -87,8 +86,7 @@ class DynamicConv(nn.Module):
 
         self._initialize_weights(weight, self.bias)
 
-        weight = weight.view(1, k, att_groups, out_channels,
-                             in_channels // groups, kernel_size, kernel_size)
+        weight = weight.view(1, k, att_groups, out_channels, in_channels // groups, kernel_size, kernel_size)
 
         weight = weight.transpose(1, 2).view(1, self.att_groups, self.k, -1)
         self.weight = nn.Parameter(weight, requires_grad=True)
@@ -108,23 +106,40 @@ class DynamicConv(nn.Module):
 
         # attention shape: batch_size x 1 x 1 x k
         # self.weight shape: 1 x 1 x k x out_channels * (in_channels // groups) * kernel_size ** 2
-        aggregate_weight = (attention @ self.weight).transpose(1, 2).reshape(b, self.out_channels,
-                                                                             self.in_channels // self.groups,
-                                                                             self.kernel_size, self.kernel_size)
+        aggregate_weight = (
+            (attention @ self.weight)
+            .transpose(1, 2)
+            .reshape(b, self.out_channels, self.in_channels // self.groups, self.kernel_size, self.kernel_size)
+        )
 
         # aggregate_weight shape: batch_size x out_channels x in_channels // groups x kernel_size x kernel_size
-        aggregate_weight = aggregate_weight.view(b * self.out_channels, self.in_channels // self.groups,
-                                                 self.kernel_size, self.kernel_size)
+        aggregate_weight = aggregate_weight.view(
+            b * self.out_channels, self.in_channels // self.groups, self.kernel_size, self.kernel_size
+        )
         # each sample in the batch has different weights for the convolution - therefore batch and channel dims need to
         # be merged together in channel dimension
         x = x.view(1, -1, f, t)
         if self.bias is not None:
             aggregate_bias = torch.mm(attention, self.bias).view(-1)
-            output = F.conv2d(x, weight=aggregate_weight, bias=aggregate_bias, stride=self.stride, padding=self.padding,
-                              dilation=self.dilation, groups=self.groups * b)
+            output = F.conv2d(
+                x,
+                weight=aggregate_weight,
+                bias=aggregate_bias,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.groups * b,
+            )
         else:
-            output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
-                              dilation=self.dilation, groups=self.groups * b)
+            output = F.conv2d(
+                x,
+                weight=aggregate_weight,
+                bias=None,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.groups * b,
+            )
 
         # output shape: 1 x batch_size * channels x f_bands x time_frames
         output = output.view(b, self.out_channels, output.size(-2), output.size(-1))
@@ -145,14 +160,12 @@ class DyReLU(nn.Module):
         self.channels = channels
         self.M = M
 
-        self.coef_net = nn.Sequential(
-                nn.Linear(context_dim, 2 * M)
-        )
+        self.coef_net = nn.Sequential(nn.Linear(context_dim, 2 * M))
 
         self.sigmoid = nn.Sigmoid()
 
-        self.register_buffer('lambdas', torch.Tensor([1.] * M + [0.5] * M).float())
-        self.register_buffer('init_v', torch.Tensor([1.] + [0.] * (2 * M - 1)).float())
+        self.register_buffer("lambdas", torch.Tensor([1.0] * M + [0.5] * M).float())
+        self.register_buffer("init_v", torch.Tensor([1.0] + [0.0] * (2 * M - 1)).float())
 
     def get_relu_coefs(self, x):
         theta = self.coef_net(x)
@@ -179,7 +192,7 @@ class DyReLUB(DyReLU):
         relu_coefs = theta.view(-1, self.channels, 1, 1, 2 * self.M) * self.lambdas + self.init_v
         # relu_coefs shape: batch_size x channels x 1 x 1 x 2*M
         # x shape: batch_size x channels x f_bands x time_frames
-        x_mapped = x.unsqueeze(-1) * relu_coefs[:, :, :, :, :self.M] + relu_coefs[:, :, :, :, self.M:]
+        x_mapped = x.unsqueeze(-1) * relu_coefs[:, :, :, :, : self.M] + relu_coefs[:, :, :, :, self.M :]
         if self.M == 2:
             # torch.maximum turned out to be faster than torch.max for M=2
             result = torch.maximum(x_mapped[:, :, :, :, 0], x_mapped[:, :, :, :, 1])
@@ -256,18 +269,18 @@ class ContextGen(nn.Module):
 
 class DY_Block(nn.Module):
     def __init__(
-            self,
-            cnf: DynamicInvertedResidualConfig,
-            context_ratio: int = 4,
-            max_context_size: int = 128,
-            min_context_size: int = 32,
-            temp_schedule: tuple = (30, 1, 1, 0.05),
-            dyrelu_k: int = 2,
-            dyconv_k: int = 4,
-            no_dyrelu: bool = False,
-            no_dyconv: bool = False,
-            no_ca: bool = False,
-            **kwargs: Any
+        self,
+        cnf: DynamicInvertedResidualConfig,
+        context_ratio: int = 4,
+        max_context_size: int = 128,
+        min_context_size: int = 32,
+        temp_schedule: tuple = (30, 1, 1, 0.05),
+        dyrelu_k: int = 2,
+        dyconv_k: int = 4,
+        no_dyrelu: bool = False,
+        no_dyconv: bool = False,
+        no_ca: bool = False,
+        **kwargs: Any,
     ):
         super().__init__()
         if not (1 <= cnf.stride <= 2):
@@ -275,10 +288,11 @@ class DY_Block(nn.Module):
 
         self.use_res_connect = cnf.stride == 1 and cnf.input_channels == cnf.out_channels
         # context_dim is denoted as 'H' in the paper
-        self.context_dim = np.clip(make_divisible(cnf.expanded_channels // context_ratio, 8),
-                                   make_divisible(min_context_size * cnf.width_mult, 8),
-                                   make_divisible(max_context_size * cnf.width_mult, 8)
-                                   )
+        self.context_dim = np.clip(
+            make_divisible(cnf.expanded_channels // context_ratio, 8),
+            make_divisible(min_context_size * cnf.width_mult, 8),
+            make_divisible(max_context_size * cnf.width_mult, 8),
+        )
 
         activation_layer = nn.Hardswish if cnf.use_hs else nn.ReLU
         norm_layer = partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
@@ -294,7 +308,7 @@ class DY_Block(nn.Module):
                         stride=(1, 1),
                         dilation=(1, 1),
                         padding=0,
-                        bias=False
+                        bias=False,
                     )
                 )
             else:
@@ -308,7 +322,7 @@ class DY_Block(nn.Module):
                     stride=1,
                     dilation=1,
                     padding=0,
-                    bias=False
+                    bias=False,
                 )
 
             self.exp_norm = norm_layer(cnf.expanded_channels)
@@ -331,7 +345,7 @@ class DY_Block(nn.Module):
                     stride=(stride, stride),
                     dilation=(cnf.dilation, cnf.dilation),
                     padding=padding,
-                    bias=False
+                    bias=False,
                 )
             )
         else:
@@ -346,11 +360,14 @@ class DY_Block(nn.Module):
                 stride=stride,
                 dilation=cnf.dilation,
                 padding=padding,
-                bias=False
+                bias=False,
             )
         self.depth_norm = norm_layer(cnf.expanded_channels)
-        self.depth_act = DynamicWrapper(activation_layer(inplace=True)) if no_dyrelu \
+        self.depth_act = (
+            DynamicWrapper(activation_layer(inplace=True))
+            if no_dyrelu
             else DyReLUB(cnf.expanded_channels, self.context_dim, M=dyrelu_k)
+        )
 
         self.ca = DynamicWrapper(nn.Identity()) if no_ca else CoordAtt()
 
@@ -364,7 +381,7 @@ class DY_Block(nn.Module):
                     stride=(1, 1),
                     dilation=(1, 1),
                     padding=0,
-                    bias=False
+                    bias=False,
                 )
             )
         else:
@@ -384,8 +401,9 @@ class DY_Block(nn.Module):
         self.proj_norm = norm_layer(cnf.out_channels)
 
         context_norm_layer = norm_layer
-        self.context_gen = ContextGen(self.context_dim, cnf.input_channels, cnf.expanded_channels,
-                                      norm_layer=context_norm_layer, stride=stride)
+        self.context_gen = ContextGen(
+            self.context_dim, cnf.input_channels, cnf.expanded_channels, norm_layer=context_norm_layer, stride=stride
+        )
 
     def forward(self, x, g=None):
         # x: CNN feature map (C x F x T)
